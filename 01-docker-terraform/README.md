@@ -1,4 +1,4 @@
-# ANSWERS BELLOW Module 1 Homework: Docker & SQL
+# ANSWERS BELOW Module 1 Homework: Docker & SQL
 
 In this homework we'll prepare the environment and practice
 Docker and SQL
