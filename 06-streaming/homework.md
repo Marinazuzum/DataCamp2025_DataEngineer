@@ -209,6 +209,23 @@ Now we have the data in the Kafka stream. It's time to process it.
 docker compose exec jobmanager ./bin/flink run -py /opt/src/job/session_job.py --pyFiles /opt/src -d
 ```
 
+```sql
+CREATE TABLE trips_aggregated (
+	window_start TIMESTAMP,
+	window_end TIMESTAMP,
+    PULocationID INT,
+    DOLocationID INT,
+    trip_streak BIGINT
+);
+
+select count(1) from trips_aggregated
+
+delete from trips_aggregated
+
+drop table trips_aggregated
+
+select * from trips_aggregated order by trip_streak desc
+```
 
 
 ## Submitting the solutions
