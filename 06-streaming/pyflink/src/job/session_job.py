@@ -1,7 +1,9 @@
 from pyflink.datastream import StreamExecutionEnvironment
 from pyflink.table import EnvironmentSettings, DataTypes, TableEnvironment, StreamTableEnvironment
+from pyflink.table.window import Session
 from pyflink.common.watermark_strategy import WatermarkStrategy
 from pyflink.common.time import Duration
+from pyflink.table.expressions import col, lit
 
 def create_trips_source_kafka(t_env):
     table_name = "green_trips"
@@ -33,6 +35,7 @@ def create_trips_sink_postgres(t_env):
     sink_ddl = f"""
         CREATE TABLE {table_name} (
             window_start TIMESTAMP(3),
+            window_end TIMESTAMP(3),
             PULocationID INT,
             DOLocationID INT,
             trip_streak BIGINT
@@ -51,7 +54,7 @@ def create_trips_sink_postgres(t_env):
 def longest_unbroken_streak():
     env = StreamExecutionEnvironment.get_execution_environment()
     env.enable_checkpointing(10 * 1000)
-    env.set_parallelism(3)
+    #env.set_parallelism(1)
 
     settings = EnvironmentSettings.new_instance().in_streaming_mode().build()
     t_env = StreamTableEnvironment.create(env, environment_settings=settings)
@@ -60,28 +63,37 @@ def longest_unbroken_streak():
         source_table = create_trips_source_kafka(t_env)
         sink_table = create_trips_sink_postgres(t_env)
 
+        table = t_env.from_path(source_table)
+
+        # Create a session window with a gap of 5 minutes
+        aggregated = table.window(Session.with_gap(lit(5 * 60).seconds).on(col("event_watermark")).alias("w")) \
+            .group_by(
+                col('w'),
+                col('PULocationID'),
+                col('DOLocationID')
+            ) \
+            .select(
+                col("w").start.alias("window_start"), 
+                col("w").end.alias("window_end"),
+                col('PULocationID'),
+                col('DOLocationID'),
+                col('PULocationID').count.alias('trip_streak')
+            )
+
+
+        # Insert the result into the sink
+        aggregated.execute_insert(sink_table).wait()
+
         # t_env.execute_sql(f"""
         # INSERT INTO {sink_table}
         # SELECT
-        #     window_start,
+        #     event_watermark as window_start,
+        #     event_watermark as window_end,
         #     PULocationID,
         #     DOLocationID,
-        #     COUNT(*) AS trip_streak
-        # FROM TABLE(
-        #     SESSION(TABLE {source_table}, DESCRIPTOR(event_watermark), INTERVAL '5' MINUTE)
-        # )
-        # GROUP BY window_start, PULocationID, DOLocationID;
+        #     1 as trip_streak
+        # FROM {source_table}
         # """).wait()
-
-        t_env.execute_sql(f"""
-        INSERT INTO {sink_table}
-        SELECT
-            lpep_pickup_datetime as window_start,
-            PULocationID,
-            DOLocationID,
-            1 as trip_streak
-        FROM {source_table}
-        """).wait()
 
         print("Executing query to determine longest unbroken taxi trip streak and sinking results to PostgreSQL...")
     
